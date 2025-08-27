@@ -82,26 +82,21 @@ def get_req_description(reqId, headers, uuid):
     except requests.exceptions.RequestException as e:
         raise Exception(f"Failed to fetch test cases: {str(e)}")
 
-
-#Yusuf
-"""
 def get_recordID(reqId, headers, uuid):
+    print("Get RecordId Entered")
     url = f"{BASE_URL}{uuid}/requirements/search"
-    data = {"fields": ['ASIL', 'linked Items'],
-            "search": f"'REQ / RE / TASK Type' = 'Software Requirement' and 'Tag' = 'SW-{str(reqId)}' or "  }
-    data = json.dumps(data)
-    response = requests.post(url, headers=headers, data=data, verify=False)
-    if response.status_code == 200:
-        recordID = response.json()['requirements'][0]['id']
-        return recordID
-    else:
-        raise Exception(f"Something went wrong while getting requirements!  -- Status Code: "
-                        f"{response.status_code}")
-
-"""
-
-def get_recordID(reqId, headers, uuid):
-    url = f"{BASE_URL}{uuid}/requirements/search"
+    # search_clause = (
+    #     "("
+    #     "'REQ / RE / TASK Type' = 'Software Requirement' and "
+    #     f"'Tag' = 'SW-{str(reqId)}'"
+    #     ") or ("
+    #     "'REQ / RE / TASK Type' = 'Constant' and "
+    #     f"'Tag' = 'CNST-{str(reqId)}'"
+    #     ") or ("
+    #     "'REQ / RE / TASK Type' = 'System Requirement' and "
+    #     f"'Tag' = 'SYS-{str(reqId)}'"
+    #     ")"
+    # )
     search_clause = (
         "("
         "'REQ / RE / TASK Type' = 'Software Requirement' and "
@@ -109,17 +104,29 @@ def get_recordID(reqId, headers, uuid):
         ") or ("
         "'REQ / RE / TASK Type' = 'Constant' and "
         f"'Tag' = 'CNST-{str(reqId)}'"
+        ") or ("
+        "'REQ / RE / TASK Type' = 'System Requirement' and "
+        f"'Tag' = 'SYS-{str(reqId)}'"
+        ") or ("
+        "'REQ / RE / TASK Type' = 'Software Architecture Requirement' and "
+        f"'Tag' = 'SWA-{str(reqId)}'"
+        ") or ("
+        "'REQ / RE / TASK Type' = 'System Architecture Requirement' and "
+        f"'Tag' = 'SYSA-{str(reqId)}'"
         ")"
     )
+
     data = {
-        "fields": ['ASIL', 'linked Items'],
+        # "fields": ['ASIL', 'linked Items'],
+        "fields": ['linked Items'],
         "search": search_clause
     }
     response = requests.post(url, headers=headers, data=json.dumps(data), verify=False)
-    print(response.json())
-
     if response.status_code == 200:
+        print("Data REceived")
         reqs = response.json().get('requirements', [])
+        # print(reqs)
+        print("Record Id is" )
         print(reqs[0]['id'])
         if not reqs:
             raise Exception("No matching requirements found.")
