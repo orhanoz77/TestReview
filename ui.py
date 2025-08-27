@@ -1,9 +1,9 @@
+
 import base64
 import time
 from urllib.parse import urljoin
 from urllib3.exceptions import InsecureRequestWarning
 from PyQt6.QtCore import Qt, QSettings
-
 from PyQt6.QtWidgets import QMessageBox, QWidget, QHBoxLayout
 from bs4 import BeautifulSoup
 from api import *
@@ -29,6 +29,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         super().__init__()
         self.setupUi(self)
 
+        # Light styling improvements for readability
+        self.setStyleSheet("""
+        QGroupBox { font-weight: 600; }
+        QTableWidget { gridline-color: #d0d0d0; }
+        QHeaderView::section { font-weight: 600; padding: 6px; }
+        QPushButton { padding: 6px 10px; }
+        """)
+
         # PUSH BUTTONS
         self.pushButton_GetProjects.clicked.connect(self.on_submit)
         self.pushButton_connectToHelixServer.clicked.connect(self.getUserInformation)
@@ -42,8 +50,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         #Combobox
         self.comboBox_projectList.currentIndexChanged.connect(self.updateToken_UUID)
 
-
-        #Progress Bar
+        #Progress Bars
         self.progress_bar_projects.hide()
         self.progress_bar_get_tc_links.hide()
         self.progress_bar_get_req_desc.hide()
@@ -54,11 +61,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         header.setStretchLastSection(True)
 
         self.tableWidget_ReqInfo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.tableWidget_ReqInfo.setAlternatingRowColors(True)
+        self.tableWidget_ReqInfo.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
         self.pushButton_SaveCredentials.clicked.connect(self.save_credentials)
-
         self.load_credentials()
-
 
     def save_credentials(self):
         settings = QSettings("MyCompany", "MyApp")  # Replace with your app details
@@ -74,7 +81,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def show_message(self, title, message, icon=QMessageBox.Icon.Warning,progress_bar=None):
         msg_box = QMessageBox(self)
-        msg_box.setStyleSheet(f"""background-color: "#ffffff";""")
         msg_box.setWindowTitle(title)
         msg_box.setText(message)
         msg_box.setIcon(icon)
@@ -89,64 +95,53 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             auth_str = f"{USERNAME}:{PASSWORD}"
             auth_str = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
             HEADERS = {'Authorization': f'Basic {auth_str}'}
-            self.show_message("Info", "Completed")
-            # print(USERNAME)
-            # print(PASSWORD)
+            self.statusBar().showMessage("Login data captured", 3000)
         else:
             self.show_message("Input Error", "Please enter both username and password.")
 
     def updateToken_UUID(self):
         global UUID, ACCESS_TOKEN
         self.progress_bar_projects.setValue(0)
-        self.progress_bar_projects.show()  # Show the progress bar at the beginning
+        self.progress_bar_projects.show()
 
         try:
             current_project = self.comboBox_projectList.currentText()
             if current_project not in project_dict:
                 raise Exception("Selected project not found in project list")
 
-            self.progress_bar_projects.setValue(50)  # Update progress to 50%
-
+            self.progress_bar_projects.setValue(50)
             UUID = project_dict[current_project]
             ACCESS_TOKEN = get_authentication_token(BASE_URL, UUID, HEADERS)
             self.tableWidget_existingTCLinks.setRowCount(0)
             self.tableWidget_ReqInfo.setRowCount(0)
-
             self.lineEdit_testCaseNumber.clear()
-
-            self.progress_bar_projects.setValue(100)  # Complete the progress
-            # print(UUID)
-            # print(ACCESS_TOKEN)
-            # print("TOKEN WAS UPDATED")
-
+            self.progress_bar_projects.setValue(100)
+            self.statusBar().showMessage("Project selected", 3000)
         except Exception as e:
             self.progress_bar_projects.setValue(0)
             self.show_message("Error", str(e), QMessageBox.Icon.Critical)
-
         finally:
-            self.progress_bar_projects.hide()  # Hide the progress bar at the end
+            self.progress_bar_projects.hide()
 
     def on_submit(self):
-        """Handles the submit button click event with progress bar updates and delay."""
         global project_dict, UUID, ACCESS_TOKEN
-        # print("on_submit called!")  # Debug print to confirm function is called
-        self.progress_bar_projects.hide()  # Hide the progress bar at the beginning
+        self.progress_bar_projects.hide()
 
         try:
-            print(f"USERNAME: {USERNAME}, PASSWORD: {PASSWORD}")  # Debug print to check values
-        except NameError as e:
+            _ = USERNAME, PASSWORD
+        except NameError:
             self.show_message("Error", "Please login")
             return
 
-        if USERNAME is not None and PASSWORD is not None and USERNAME.strip() != "" and PASSWORD.strip() != "":
-            self.error_occurred = False  # Initialize an error flag
+        if USERNAME and PASSWORD and USERNAME.strip() and PASSWORD.strip():
+            self.error_occurred = False
             self.progress_bar_projects.setValue(0)
-            self.progress_bar_projects.show()  # Show the progress bar when starting the task
+            self.progress_bar_projects.show()
 
             def safe_step(func):
                 def wrapper():
                     if self.error_occurred:
-                        return  # Skip if an error occurred
+                        return
                     try:
                         func()
                     except Exception as e:
@@ -154,7 +149,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                         self.progress_bar_projects.setValue(0)
                         self.progress_bar_projects.hide()
                         self.show_message("Error", str(e), QMessageBox.Icon.Critical)
-
                 return wrapper
 
             def step1():
@@ -181,76 +175,52 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             def finish():
                 self.progress_bar_projects.setValue(100)
                 self.progress_bar_projects.hide()
+                self.statusBar().showMessage("Projects loaded", 3000)
 
-            QTimer.singleShot(500, lambda: safe_step(step1)())
-            QTimer.singleShot(1500, lambda: safe_step(step2)())
-            QTimer.singleShot(2500, lambda: safe_step(step3)())
-            QTimer.singleShot(3500, lambda: safe_step(finish)())
-
+            QTimer.singleShot(200, lambda: safe_step(step1)())
+            QTimer.singleShot(600, lambda: safe_step(step2)())
+            QTimer.singleShot(900, lambda: safe_step(step3)())
+            QTimer.singleShot(1200, lambda: safe_step(finish)())
         else:
             self.show_message("Input Error", "Please enter both username and password.")
 
-
     def get_req_description(self, reqId):
-        """Fetch and display requirement links and discussions for a given test case."""
         global TCID, req_list, ACCESS_TOKEN,UUID
-        self.progress_bar_get_tc_links.hide()  # Hide progress bar at the beginning
+        self.progress_bar_get_tc_links.hide()
 
         try:
-            print(f"USERNAME: {USERNAME}, PASSWORD: {PASSWORD}")  # Debug print to check values
+            _ = USERNAME
         except NameError:
             self.show_message("Error", "Please login")
             return
 
         try:
-            print(f"ACCESS TOKEN: {ACCESS_TOKEN}")  # Debug print to check values
+            _ = ACCESS_TOKEN
         except NameError:
             self.show_message("Error", "Please Select a project")
             return
 
         if not ACCESS_TOKEN or not UUID:
             self.show_message("Error", "Invalid ACCESS_TOKEN or UUID")
-            print("Invalid ACCESS_TOKEN or UUID")
             return
 
-        headers = {
-            'Authorization': f'Bearer {ACCESS_TOKEN}',
-        }
+        headers = { 'Authorization': f'Bearer {ACCESS_TOKEN}' }
 
         req_desc = get_req_description(reqId, headers, UUID)
-        self.progress_bar_get_req_desc.setValue(50)  # Reset progress bar
-        self.progress_bar_get_req_desc.show()  # Show progress bar
+        self.progress_bar_get_req_desc.setValue(50)
+        self.progress_bar_get_req_desc.show()
         tag = req_desc.get('tag', 'No TAG available')
-        summary = next((field['string'] for field in req_desc['fields'] if field['label'] == 'Summary'),
-                       'No Summary available')
+        summary = next((f['string'] for f in req_desc['fields'] if f['label'] == 'Summary'), 'No Summary available')
 
-        # Extract the description and remove HTML tags using BeautifulSoup
-        description_html = next(
-            (field['formattedString']['text'] for field in req_desc['fields'] if field['label'] == 'Description'),
+        description_html = next((f['formattedString']['text'] for f in req_desc['fields'] if f['label'] == 'Description'),
             'No Description available')
-
         description_soup = BeautifulSoup(description_html, 'html.parser')
 
-        # Check if the description contains an image
         image_tag = description_soup.find('img')
         if image_tag:
-            # image_src = image_tag.get('src', 'No image source available')
-            image_src = image_tag.get('src', None)
-            # If the image source is a relative path, make it an absolute URL
-            # image_url = urljoin(BASE_URL, image_src) if not image_src.startswith('http') else image_src
-            image_url = urljoin(BASE_URL, image_src)
-
-            response = requests.get(image_url, verify=False)  # Assuming SSL issues
-            if response.status_code == 200:
-                print("Image fetched successfully")
-            else:
-                print(f"Failed to fetch image. Status Code: {response.status_code}")
-
-        if  image_tag :
             description_text = "Requirement contains image, please check Helix"
         else:
-            0
-            description_text = BeautifulSoup(description_html, 'html.parser').get_text()
+            description_text = description_soup.get_text()
         discussions = []
         discussions_field_found = False
         for field in req_desc['fields']:
@@ -259,61 +229,43 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 discussion_text = BeautifulSoup(field['formattedString']['text'], 'html.parser').get_text()
                 discussions.append(discussion_text)
 
-        # Set discussions_text based on whether the 'Discussion' field was found
-        if discussions_field_found:
-            discussions_text = "\n".join(discussions) if discussions else "No Discussion available"
-        else:
-            discussions_text = "Field does not exist"
+        discussions_text = "\\n".join(discussions) if discussions_field_found and discussions else \
+            ("Field does not exist" if not discussions_field_found else "No Discussion available")
+
         self.add_row_to_table(tag, summary, description_text, discussions_text)
 
     def add_row_to_table(self, tag, summary, description, discussions):
-        # Check if columns are already set, if not, set them
         if self.tableWidget_ReqInfo.columnCount() == 0:
             self.tableWidget_ReqInfo.setColumnCount(4)
             self.tableWidget_ReqInfo.setHorizontalHeaderLabels(["TAG", "Summary", "Description", "Discussions"])
 
-        # Get the current row count
-        current_row_count = self.tableWidget_ReqInfo.rowCount()
+        row = self.tableWidget_ReqInfo.rowCount()
+        self.tableWidget_ReqInfo.insertRow(row)
 
-        # Insert a new row at the end
-        self.tableWidget_ReqInfo.insertRow(current_row_count)
-
-        # Create QTableWidgetItem for each column
         tag_item = QTableWidgetItem(tag)
         summary_item = QTableWidgetItem(summary)
         description_item = QTableWidgetItem(description)
         discussions_item = QTableWidgetItem(discussions)
 
-        # Set text wrapping for the Description and Discussions columns
         description_item.setTextAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        #description_item.setFlags(description_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         description_item.setFlags(description_item.flags() | Qt.ItemFlag.ItemIsEditable)
         discussions_item.setTextAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         discussions_item.setFlags(discussions_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
-        # Add the items to the respective columns in the new row
-        self.tableWidget_ReqInfo.setItem(current_row_count, 0, tag_item)
-        self.tableWidget_ReqInfo.setItem(current_row_count, 1, summary_item)
-        self.tableWidget_ReqInfo.setItem(current_row_count, 2, description_item)
-        self.tableWidget_ReqInfo.setItem(current_row_count, 3, discussions_item)
+        self.tableWidget_ReqInfo.setItem(row, 0, tag_item)
+        self.tableWidget_ReqInfo.setItem(row, 1, summary_item)
+        self.tableWidget_ReqInfo.setItem(row, 2, description_item)
+        self.tableWidget_ReqInfo.setItem(row, 3, discussions_item)
 
-        # Resize "Tag" and "Summary" columns to fit content
         self.tableWidget_ReqInfo.resizeColumnToContents(0)
         self.tableWidget_ReqInfo.resizeColumnToContents(1)
-
-        # Set a fixed width for the "Description" and "Discussions" columns
-        self.tableWidget_ReqInfo.setColumnWidth(2, 300)
-        self.tableWidget_ReqInfo.setColumnWidth(3, 300)
-        self.tableWidget_ReqInfo.horizontalHeader().setSectionResizeMode(2,QHeaderView.ResizeMode.Stretch)  # 2 is the index of the last column
-
-        self.tableWidget_ReqInfo.setEditTriggers(QAbstractItemView.EditTrigger.AllEditTriggers)
-
-        self.progress_bar_get_req_desc.setValue(70)  # Reset progress bar
-        self.progress_bar_get_req_desc.show()  # Show progress bar
-        # time.sleep(0.2)
-
-        # Adjust row height to fit wrapped text
+        self.tableWidget_ReqInfo.setColumnWidth(2, 350)
+        self.tableWidget_ReqInfo.setColumnWidth(3, 350)
+        self.tableWidget_ReqInfo.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.tableWidget_ReqInfo.resizeRowsToContents()
+
+        self.progress_bar_get_req_desc.setValue(100)
+        self.progress_bar_get_req_desc.hide()
 
     def read_table_items(self):
         headers = {
@@ -321,80 +273,61 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             'Content-Type': 'application/json'
         }
         self.progress_bar_get_req_desc.hide()
-        self.progress_bar_get_req_desc.setValue(0)  # Reset progress bar
-        self.progress_bar_get_req_desc.show()  # Show progress bar
-        print("READ TABLE ENTERED")
+        self.progress_bar_get_req_desc.setValue(0)
+        self.progress_bar_get_req_desc.show()
         self.tableWidget_ReqInfo.setRowCount(0)
         try:
-            rows = self.tableWidget_existingTCLinks.rowCount()  # Get total rows
+            rows = self.tableWidget_existingTCLinks.rowCount()
             if rows == 0:
-                raise ValueError("The table is empty!")  # Raise an error if no rows exist
+                raise ValueError("The table is empty!")
 
-            empty = True  # Flag to check if all rows are empty
-
+            empty = True
             for row in range(rows):
-                item = self.tableWidget_existingTCLinks.item(row, 0)  # Read only from column 0
-                if item and item.text().strip():  # Check if item is not None and not empty
+                item = self.tableWidget_existingTCLinks.item(row, 0)
+                if item and item.text().strip():
                     reqId = item.text()
-                    print("REQID"+reqId)
-                    # recordID = get_recordID(reqId, headers, UUID)
-                    self.progress_bar_get_req_desc.setValue(50)  # Reset progress bar
-                    self.progress_bar_get_req_desc.show()  # Show progress bar
+                    self.progress_bar_get_req_desc.setValue(50)
                     empty = False
-                    # self.get_req_description(recordID) # WE MUST SEND RECORD ID HERE
-                    self.get_req_description(reqId) # WE MUST SEND RECORD ID HERE
-                    self.progress_bar_get_req_desc.setValue(100)  # Reset progress bar
-                    time.sleep(0.1)
-                    self.progress_bar_get_req_desc.show()  # Show progress bar
+                    self.get_req_description(reqId)
+                    self.progress_bar_get_req_desc.setValue(100)
+                    time.sleep(0.05)
             self.progress_bar_get_req_desc.hide()
             if empty:
-                raise ValueError("All rows are empty!")  # Warn if all rows are empty
-            self.progress_bar_get_req_desc.hide()
-
+                raise ValueError("All rows are empty!")
         except ValueError as e:
-            QMessageBox.warning(None, "Warning", str(e))  # Show a warning message box
+            QMessageBox.warning(None, "Warning", str(e))
 
     def get_req_Tag(self, reqId):
-        """Fetch and display requirement links and discussions for a given test case."""
         global TCID, req_list, ACCESS_TOKEN,UUID
-        self.progress_bar_get_tc_links.hide()  # Hide progress bar at the beginning
+        self.progress_bar_get_tc_links.hide()
 
         if not ACCESS_TOKEN or not UUID:
             self.show_message("Error", "Invalid ACCESS_TOKEN or UUID")
-            print("Invalid ACCESS_TOKEN or UUID")
             return
 
-        headers = {
-            'Authorization': f'Bearer {ACCESS_TOKEN}',
-        }
-
+        headers = { 'Authorization': f'Bearer {ACCESS_TOKEN}' }
         req_desc = get_req_description(reqId, headers, UUID)
         tag = req_desc.get('tag', 'No TAG available')
         return  tag
 
     def getTCLinks(self):
-        """Fetch and display requirement links for a given test case."""
         global TCID, req_list, ACCESS_TOKEN
         self.progress_bar_get_tc_links.hide()
         prefixes = ("SYS", "SW", "SWDD", "CNST")
 
-        # 1) Check that username and token are available
         try:
             _ = USERNAME, ACCESS_TOKEN
         except NameError:
             self.show_message("Error", "Please log in first.", QMessageBox.Icon.Warning)
             return
 
-        # 2) Read the Test Case ID from the input field
         test_case_id = self.lineEdit_testCaseNumber.text().strip()
         TCID = test_case_id
 
-        # 3) Validate the Test Case ID
         if not test_case_id.isdigit() or int(test_case_id) <= 0:
             self.show_message("Input Error", "Test Case ID must be a positive integer.")
             return
 
-        # 4) Send request to the API and parse the response
         self.tableWidget_ReqInfo.setRowCount(0)
         self.progress_bar_get_tc_links.setValue(0)
         self.progress_bar_get_tc_links.show()
@@ -411,23 +344,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     continue
 
                 if name == "Related Items":
-                    # get itemIDs from peers
                     peers = link["peers"]
                     tc_id = next(p["itemID"] for p in peers if p["itemType"] == "testCases")
                     requirement_id = next(p["itemID"] for p in peers if p["itemType"] == "requirements")
                 else:
-                    # get from parentChildren
                     tc_id = link["parentChildren"]["children"][0]["itemID"]
                     requirement_id = link["parentChildren"]["parent"]["itemID"]
 
-                # optional prefix filter
                 if not any(str(requirement_id).startswith(pref) for pref in prefixes):
-                    # remove this line if you no longer want to filter by prefix
                     pass
 
                 test_case_requirements.setdefault(tc_id, []).append(requirement_id)
 
-            # Populate the table with requirement IDs
             req_list = [req for reqs in test_case_requirements.values() for req in reqs]
             self.tableWidget_existingTCLinks.setRowCount(len(req_list))
             for row, rid in enumerate(req_list):
@@ -441,9 +369,6 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.progress_bar_get_tc_links.setValue(0)
             self.progress_bar_get_tc_links.hide()
             self.show_message("Error", str(e), QMessageBox.Icon.Critical)
-
-
-
 
     def filter_table(self):
         filter_text = self.lineEdit_userName_2.text().lower()
