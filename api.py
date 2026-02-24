@@ -3,7 +3,7 @@ import requests
 import random
 import json
 
-BASE_URL = 'https://10.5.180.217:443/helix-alm/api/v0/'
+BASE_URL = 'https://10.214.41.6:8443/helix-alm/api/v0/'
 
 DEFAULT_TIMEOUT = 30  # seconds
 
