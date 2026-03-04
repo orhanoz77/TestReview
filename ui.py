@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from api import *
 from auth import get_authentication_token
 from main_window import Ui_MainWindow
+from session_manager import SessionManager
 from PyQt6.QtGui import QPixmap, QIcon
 import requests
 import os
@@ -106,6 +107,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.pushButton_SaveCredentials.clicked.connect(self.save_credentials)
         self.load_credentials()
 
+        # Session management
+        self.session = SessionManager()
+
         # Thread pool
         self.threadpool = QThreadPool.globalInstance()
         self._pending_total = 0
@@ -128,31 +132,28 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # ---------- Auth / Projects ----------
     def getUserInformation(self):
-        global USERNAME, PASSWORD, HEADERS
-        USERNAME = self.lineEdit_userName.text()
-        PASSWORD = self.lineEdit_password.text()
+        username = self.lineEdit_userName.text()
+        password = self.lineEdit_password.text()
 
-        if USERNAME and PASSWORD:
-            auth_str = f"{USERNAME}:{PASSWORD}"
-            auth_str = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
-            HEADERS = {'Authorization': f'Basic {auth_str}'}
+        if username and password:
+            self.session.set_credentials(username, password)
             self.statusBar().showMessage("Login data captured", 3000)
         else:
             self.show_message("Input Error", "Please enter both username and password.")
 
     def updateToken_UUID(self):
-        global UUID, ACCESS_TOKEN
         self.progress_bar_projects.setValue(0)
         self.progress_bar_projects.show()
 
         try:
             current_project = self.comboBox_projectList.currentText()
-            if current_project not in project_dict:
+            project_uuid = self.session.get_project_uuid(current_project)
+            if not project_uuid:
                 raise Exception("Selected project not found in project list")
 
             self.progress_bar_projects.setValue(50)
-            UUID = project_dict[current_project]
-            ACCESS_TOKEN = get_authentication_token(BASE_URL, UUID, HEADERS)
+            access_token = get_authentication_token(BASE_URL, project_uuid, self.session.headers)
+            self.session.set_project(project_uuid, access_token)
             self.tableWidget_existingTCLinks.setRowCount(0)
             self.tableWidget_ReqInfo.setRowCount(0)
             self.lineEdit_testCaseNumber.clear()
@@ -165,14 +166,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.progress_bar_projects.hide()
 
     def on_submit(self):
-        global project_dict, UUID, ACCESS_TOKEN
-        try:
-            _ = USERNAME, PASSWORD
-        except NameError:
+        if not self.session.is_authenticated():
             self.show_message("Error", "Please login")
             return
 
-        if USERNAME and PASSWORD and USERNAME.strip() and PASSWORD.strip():
+        if self.session.username and self.session.password and self.session.username.strip() and self.session.password.strip():
             self.progress_bar_projects.setValue(0)
             self.progress_bar_projects.show()
 
@@ -190,25 +188,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.progress_bar_projects.setValue(20)
 
             def step2():
-                global project_dict
-                project_dict = get_project_list(HEADERS)
+                projects = get_project_list(self.session.headers)
+                self.session.set_projects(projects)
                 self.progress_bar_projects.setValue(50)
                 try:
                     self.comboBox_projectList.currentIndexChanged.disconnect()
                 except Exception:
                     pass
                 self.comboBox_projectList.clear()
-                self.comboBox_projectList.addItems(project_dict.keys())
+                self.comboBox_projectList.addItems(projects.keys())
                 self.comboBox_projectList.currentIndexChanged.connect(self.updateToken_UUID)
 
             def step3():
-                global UUID, ACCESS_TOKEN
                 self.progress_bar_projects.setValue(70)
                 current_project = self.comboBox_projectList.currentText()
-                if current_project not in project_dict:
+                project_uuid = self.session.get_project_uuid(current_project)
+                if not project_uuid:
                     raise Exception("Selected project not found in project list")
-                UUID = project_dict[current_project]
-                ACCESS_TOKEN = get_authentication_token(BASE_URL, UUID, HEADERS)
+                access_token = get_authentication_token(BASE_URL, project_uuid, self.session.headers)
+                self.session.set_project(project_uuid, access_token)
 
             def finish():
                 self.progress_bar_projects.setValue(100)
@@ -267,8 +265,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.statusBar().showMessage("Requirement details loaded", 3000)
 
     def read_table_items(self):
-        global ACCESS_TOKEN, UUID
-        if not ACCESS_TOKEN or not UUID:
+        if not self.session.is_project_selected():
             self.show_message("Error", "Please select a project first")
             return
 
@@ -304,7 +301,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Launch workers
         for chunk in chunks:
-            worker = ReqBatchWorker(chunk, {'Authorization': f'Bearer {ACCESS_TOKEN}'}, UUID)
+            worker = ReqBatchWorker(chunk, self.session.get_bearer_headers(), self.session.uuid)
             worker.signals.row_ready.connect(self._on_worker_row)
             worker.signals.error.connect(self._on_worker_error)
             worker.signals.finished.connect(self._on_worker_finished)
@@ -312,20 +309,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     # ---------- Test case links ----------
     def get_req_Tag(self, reqId):
-        global ACCESS_TOKEN, UUID
-        if not ACCESS_TOKEN or not UUID:
+        if not self.session.is_project_selected():
             self.show_message("Error", "Invalid ACCESS_TOKEN or UUID")
             return
-        headers = { 'Authorization': f'Bearer {ACCESS_TOKEN}' }
-        req_desc = get_req_description(reqId, headers, UUID)
+        headers = self.session.get_bearer_headers()
+        req_desc = get_req_description(reqId, headers, self.session.uuid)
         return req_desc.get('tag', 'No TAG available')
 
     def getTCLinks(self):
-        global ACCESS_TOKEN, UUID
         prefixes = ("SYS", "SW", "SWDD", "CNST")
-        try:
-            _ = ACCESS_TOKEN
-        except NameError:
+        if not self.session.is_project_selected():
             self.show_message("Error", "Please log in first.", QMessageBox.Icon.Warning)
             return
 
@@ -338,10 +331,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.progress_bar_get_tc_links.setValue(0)
         self.progress_bar_get_tc_links.show()
 
-        headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
+        headers = self.session.get_bearer_headers()
 
         try:
-            data = get_test_cases_links(test_case_id, headers, UUID)
+            data = get_test_cases_links(test_case_id, headers, self.session.uuid)
             test_case_requirements = {}
 
             for link in data.get("linksData", []):
