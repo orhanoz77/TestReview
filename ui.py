@@ -17,11 +17,9 @@ from session_manager import SessionManager
 from PyQt6.QtGui import QPixmap, QIcon
 import requests
 import os
+import config
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
-
-# Constants
-REQUIREMENT_PREFIXES = ("SYS", "SW", "SWDD", "CNST")
 
 # ---------------- Worker infrastructure ----------------
 
@@ -96,12 +94,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.setupUi(self)
 
         # Styling
-        self.setStyleSheet("""
-            QGroupBox { font-weight: 600; }
-            QTableWidget { gridline-color: #d0d0d0; }
-            QHeaderView::section { font-weight: 600; padding: 6px; }
-            QPushButton { padding: 6px 10px; }
-        """)
+        self.setStyleSheet(config.MAIN_STYLESHEET)
 
         # Connections
         self.pushButton_GetProjects.clicked.connect(self.on_submit)
@@ -146,13 +139,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     # ---------- Credentials ----------
     def save_credentials(self) -> None:
         """Save credentials to QSettings"""
-        settings = QSettings("MyCompany", "MyApp")
+        settings = QSettings(config.ORGANIZATION_NAME, config.APP_NAME)
         settings.setValue("username", self.lineEdit_userName.text())
         settings.setValue("password", self.lineEdit_password.text())
 
     def load_credentials(self) -> None:
         """Load credentials from QSettings"""
-        settings = QSettings("MyCompany", "MyApp")
+        settings = QSettings(config.ORGANIZATION_NAME, config.APP_NAME)
         self.lineEdit_userName.setText(settings.value("username", ""))
         self.lineEdit_password.setText(settings.value("password", ""))
 
@@ -175,9 +168,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         if username and password:
             self.session.set_credentials(username, password)
-            self.statusBar().showMessage("Login data captured", 3000)
+            self.statusBar().showMessage(config.STATUS_MESSAGES['login_captured'], config.STATUS_MESSAGE_DURATION)
         else:
-            self.show_message("Input Error", "Please enter both username and password.")
+            self.show_message("Input Error", config.ERROR_MESSAGES['enter_credentials'])
 
     def updateToken_UUID(self) -> None:
         """Update project token and UUID when project selection changes"""
@@ -188,7 +181,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             current_project = self.comboBox_projectList.currentText()
             project_uuid = self.session.get_project_uuid(current_project)
             if not project_uuid:
-                raise Exception("Selected project not found in project list")
+                raise Exception(config.ERROR_MESSAGES['project_not_found'])
 
             self.progress_bar_projects.setValue(50)
             access_token = self.api_client.get_authentication_token(project_uuid, self.session.headers)
@@ -197,7 +190,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.tableWidget_ReqInfo.setRowCount(0)
             self.lineEdit_testCaseNumber.clear()
             self.progress_bar_projects.setValue(100)
-            self.statusBar().showMessage("Project selected", 3000)
+            self.statusBar().showMessage(config.STATUS_MESSAGES['project_selected'], config.STATUS_MESSAGE_DURATION)
         except Exception as e:
             self.progress_bar_projects.setValue(0)
             self.show_message("Error", str(e), QMessageBox.Icon.Critical)
@@ -207,7 +200,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def on_submit(self) -> None:
         """Load and display available projects"""
         if not self.session.is_authenticated():
-            self.show_message("Error", "Please login")
+            self.show_message("Error", config.ERROR_MESSAGES['login_required'])
             return
 
         if self.session.username and self.session.password and self.session.username.strip() and self.session.password.strip():
@@ -244,21 +237,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 current_project = self.comboBox_projectList.currentText()
                 project_uuid = self.session.get_project_uuid(current_project)
                 if not project_uuid:
-                    raise Exception("Selected project not found in project list")
+                    raise Exception(config.ERROR_MESSAGES['project_not_found'])
                 access_token = self.api_client.get_authentication_token(project_uuid, self.session.headers)
                 self.session.set_project(project_uuid, access_token)
 
             def finish():
                 self.progress_bar_projects.setValue(100)
                 self.progress_bar_projects.hide()
-                self.statusBar().showMessage("Projects loaded", 3000)
+                self.statusBar().showMessage(config.STATUS_MESSAGES['projects_loaded'], config.STATUS_MESSAGE_DURATION)
 
             QTimer.singleShot(50, safe_step(step1))
             QTimer.singleShot(100, safe_step(step2))
             QTimer.singleShot(150, safe_step(step3))
             QTimer.singleShot(200, safe_step(finish))
         else:
-            self.show_message("Input Error", "Please enter both username and password.")
+            self.show_message("Input Error", config.ERROR_MESSAGES['enter_credentials'])
 
     # ---------- Requirement details (parallel) ----------
     def _on_worker_row(self, tag: str, summary: str, description: str, discussions: str) -> None:
@@ -318,12 +311,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.tableWidget_ReqInfo.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
             self.tableWidget_ReqInfo.resizeRowsToContents()
             self.progress_bar_get_req_desc.hide()
-            self.statusBar().showMessage("Requirement details loaded", 3000)
+            self.statusBar().showMessage(config.STATUS_MESSAGES['details_loaded'], config.STATUS_MESSAGE_DURATION)
 
     def read_table_items(self) -> None:
         """Fetch and display requirement details for all linked test case requirements"""
         if not self.session.is_project_selected():
-            self.show_message("Error", "Please select a project first")
+            self.show_message("Error", config.ERROR_MESSAGES['select_project'])
             return
 
         # Collect unique req IDs
@@ -339,7 +332,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     ids.append(rid)
 
         if not ids:
-            QMessageBox.warning(self, "Warning", "No requirement IDs found to fetch.")
+            QMessageBox.warning(self, "Warning", config.ERROR_MESSAGES['no_requirements'])
             return
 
         # Reset table and progress
@@ -376,21 +369,21 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             Requirement tag or None if error
         """
         if not self.session.is_project_selected():
-            self.show_message("Error", "Invalid ACCESS_TOKEN or UUID")
+            self.show_message("Error", config.ERROR_MESSAGES['invalid_token'])
             return None
         headers = self.session.get_bearer_headers()
         req_desc = self.api_client.get_req_description(reqId, headers, self.session.uuid)
-        return req_desc.get('tag', 'No TAG available')
+        return req_desc.get('tag', config.STATUS_MESSAGES.get('no_tag', 'No TAG available'))
 
     def getTCLinks(self) -> None:
         """Fetch and display test case links for entered test case ID"""
         if not self.session.is_project_selected():
-            self.show_message("Error", "Please log in first.", QMessageBox.Icon.Warning)
+            self.show_message("Error", config.ERROR_MESSAGES['login_required'], QMessageBox.Icon.Warning)
             return
 
         test_case_id = self.lineEdit_testCaseNumber.text().strip()
         if not test_case_id.isdigit() or int(test_case_id) <= 0:
-            self.show_message("Input Error", "Test Case ID must be a positive integer.")
+            self.show_message("Input Error", config.ERROR_MESSAGES['invalid_tc_id'])
             return
 
         self.tableWidget_ReqInfo.setRowCount(0)
@@ -416,7 +409,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     requirement_id = link["parentChildren"]["parent"]["itemID"]
 
                 # Optional prefix filter (kept as pass-through to preserve behavior)
-                if not any(str(requirement_id).startswith(pref) for pref in REQUIREMENT_PREFIXES):
+                if not any(str(requirement_id).startswith(pref) for pref in config.REQUIREMENT_PREFIXES):
                     pass
 
                 test_case_requirements.setdefault(tc_id, []).append(requirement_id)
@@ -428,6 +421,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             self.progress_bar_get_tc_links.setValue(100)
             self.progress_bar_get_tc_links.hide()
+            self.statusBar().showMessage(config.STATUS_MESSAGES['links_loaded'], config.STATUS_MESSAGE_DURATION)
         except Exception as e:
             self.progress_bar_get_tc_links.setValue(0)
             self.progress_bar_get_tc_links.hide()
