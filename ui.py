@@ -1,6 +1,11 @@
+"""
+MainWindow UI controller for ShowTestCaseLinkedReq
+Handles user interactions and API communication
+"""
 
 import base64
 import time
+from typing import Dict, List, Any, Optional
 from urllib.parse import urljoin
 from urllib3.exceptions import InsecureRequestWarning
 from PyQt6.QtCore import Qt, QSettings, QTimer, QObject, pyqtSignal, QRunnable, QThreadPool
@@ -15,16 +20,31 @@ import os
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
+# Constants
+REQUIREMENT_PREFIXES = ("SYS", "SW", "SWDD", "CNST")
+
 # ---------------- Worker infrastructure ----------------
 
 class WorkerSignals(QObject):
+    """Signals emitted by worker threads"""
     row_ready = pyqtSignal(str, str, str, str)   # tag, summary, desc, discussions
     progress_tick = pyqtSignal(int)              # +1 per completed fetch
     error = pyqtSignal(str)
     finished = pyqtSignal()
 
 class ReqBatchWorker(QRunnable):
-    def __init__(self, ids: list, headers: dict, uuid: str, api_client: HelixAPIClient):
+    """Worker thread for fetching requirement details in batch"""
+    
+    def __init__(self, ids: List[str], headers: Dict[str, str], uuid: str, api_client: HelixAPIClient) -> None:
+        """
+        Initialize the batch worker.
+        
+        Args:
+            ids: List of requirement IDs to fetch
+            headers: HTTP headers with authentication
+            uuid: Project UUID
+            api_client: Instance of HelixAPIClient
+        """
         super().__init__()
         self.ids = ids
         self.headers = headers
@@ -32,7 +52,8 @@ class ReqBatchWorker(QRunnable):
         self.api_client = api_client
         self.signals = WorkerSignals()
 
-    def run(self):
+    def run(self) -> None:
+        """Execute the worker thread task"""
         try:
             # Session per worker -> connection reuse without thread-safety problems
             with requests.Session() as sess:
@@ -67,7 +88,10 @@ class ReqBatchWorker(QRunnable):
             self.signals.finished.emit()
 
 class MainWindow(QMainWindow, Ui_MainWindow):
-    def __init__(self):
+    """Main application window"""
+    
+    def __init__(self) -> None:
+        """Initialize the main window"""
         super().__init__()
         self.setupUi(self)
 
@@ -108,33 +132,44 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.load_credentials()
 
         # Session management
-        self.session = SessionManager()
+        self.session: SessionManager = SessionManager()
         
         # API Client
-        self.api_client = HelixAPIClient()
+        self.api_client: HelixAPIClient = HelixAPIClient()
 
         # Thread pool
-        self.threadpool = QThreadPool.globalInstance()
-        self._pending_total = 0
-        self._pending_done = 0
-        self._pending_workers = 0
+        self.threadpool: QThreadPool = QThreadPool.globalInstance()
+        self._pending_total: int = 0
+        self._pending_done: int = 0
+        self._pending_workers: int = 0
 
     # ---------- Credentials ----------
-    def save_credentials(self):
+    def save_credentials(self) -> None:
+        """Save credentials to QSettings"""
         settings = QSettings("MyCompany", "MyApp")
         settings.setValue("username", self.lineEdit_userName.text())
         settings.setValue("password", self.lineEdit_password.text())
 
-    def load_credentials(self):
+    def load_credentials(self) -> None:
+        """Load credentials from QSettings"""
         settings = QSettings("MyCompany", "MyApp")
         self.lineEdit_userName.setText(settings.value("username", ""))
         self.lineEdit_password.setText(settings.value("password", ""))
 
-    def show_message(self, title, message, icon=QMessageBox.Icon.Warning):
+    def show_message(self, title: str, message: str, icon: QMessageBox.Icon = QMessageBox.Icon.Warning) -> None:
+        """
+        Show message dialog to user.
+        
+        Args:
+            title: Dialog title
+            message: Message text
+            icon: Message icon type
+        """
         QMessageBox(icon, title, message, parent=self).exec()
 
     # ---------- Auth / Projects ----------
-    def getUserInformation(self):
+    def getUserInformation(self) -> None:
+        """Capture login information from UI"""
         username = self.lineEdit_userName.text()
         password = self.lineEdit_password.text()
 
@@ -144,7 +179,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         else:
             self.show_message("Input Error", "Please enter both username and password.")
 
-    def updateToken_UUID(self):
+    def updateToken_UUID(self) -> None:
+        """Update project token and UUID when project selection changes"""
         self.progress_bar_projects.setValue(0)
         self.progress_bar_projects.show()
 
@@ -168,7 +204,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         finally:
             self.progress_bar_projects.hide()
 
-    def on_submit(self):
+    def on_submit(self) -> None:
+        """Load and display available projects"""
         if not self.session.is_authenticated():
             self.show_message("Error", "Please login")
             return
@@ -224,7 +261,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.show_message("Input Error", "Please enter both username and password.")
 
     # ---------- Requirement details (parallel) ----------
-    def _on_worker_row(self, tag, summary, description, discussions):
+    def _on_worker_row(self, tag: str, summary: str, description: str, discussions: str) -> None:
+        """
+        Handle worker signal for requirement row data.
+        
+        Args:
+            tag: Requirement tag
+            summary: Requirement summary
+            description: Requirement description
+            discussions: Requirement discussions
+        """
         # Buffer rows quickly without resizing every time for speed
         if self.tableWidget_ReqInfo.columnCount() == 0:
             self.tableWidget_ReqInfo.setColumnCount(4)
@@ -250,11 +296,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         percent = int((self._pending_done / max(1, self._pending_total)) * 100)
         self.progress_bar_get_req_desc.setValue(percent)
 
-    def _on_worker_error(self, msg):
+    def _on_worker_error(self, msg: str) -> None:
+        """
+        Handle worker error signal.
+        
+        Args:
+            msg: Error message
+        """
         # Log to status bar; avoid modal dialogs during bulk load
         self.statusBar().showMessage(f"Error: {msg}", 5000)
 
-    def _on_worker_finished(self):
+    def _on_worker_finished(self) -> None:
+        """Handle worker finished signal"""
         self._pending_workers -= 1
         if self._pending_workers <= 0:
             # Finalize table sizing once
@@ -267,14 +320,15 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.progress_bar_get_req_desc.hide()
             self.statusBar().showMessage("Requirement details loaded", 3000)
 
-    def read_table_items(self):
+    def read_table_items(self) -> None:
+        """Fetch and display requirement details for all linked test case requirements"""
         if not self.session.is_project_selected():
             self.show_message("Error", "Please select a project first")
             return
 
         # Collect unique req IDs
-        ids = []
-        seen = set()
+        ids: List[str] = []
+        seen: set = set()
         rows = self.tableWidget_existingTCLinks.rowCount()
         for r in range(rows):
             item = self.tableWidget_existingTCLinks.item(r, 0)
@@ -311,16 +365,25 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.threadpool.start(worker)
 
     # ---------- Test case links ----------
-    def get_req_Tag(self, reqId):
+    def get_req_Tag(self, reqId: str) -> Optional[str]:
+        """
+        Get requirement tag by ID.
+        
+        Args:
+            reqId: Requirement ID
+            
+        Returns:
+            Requirement tag or None if error
+        """
         if not self.session.is_project_selected():
             self.show_message("Error", "Invalid ACCESS_TOKEN or UUID")
-            return
+            return None
         headers = self.session.get_bearer_headers()
         req_desc = self.api_client.get_req_description(reqId, headers, self.session.uuid)
         return req_desc.get('tag', 'No TAG available')
 
-    def getTCLinks(self):
-        prefixes = ("SYS", "SW", "SWDD", "CNST")
+    def getTCLinks(self) -> None:
+        """Fetch and display test case links for entered test case ID"""
         if not self.session.is_project_selected():
             self.show_message("Error", "Please log in first.", QMessageBox.Icon.Warning)
             return
@@ -337,8 +400,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         headers = self.session.get_bearer_headers()
 
         try:
-            data = self.api_client.get_test_cases_links(test_case_id, headers, self.session.uuid)
-            test_case_requirements = {}
+            data: Dict[str, Any] = self.api_client.get_test_cases_links(test_case_id, headers, self.session.uuid)
+            test_case_requirements: Dict[str, List[str]] = {}
 
             for link in data.get("linksData", []):
                 name = link["linkDefinition"]["name"]
@@ -353,12 +416,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     requirement_id = link["parentChildren"]["parent"]["itemID"]
 
                 # Optional prefix filter (kept as pass-through to preserve behavior)
-                if not any(str(requirement_id).startswith(pref) for pref in prefixes):
+                if not any(str(requirement_id).startswith(pref) for pref in REQUIREMENT_PREFIXES):
                     pass
 
                 test_case_requirements.setdefault(tc_id, []).append(requirement_id)
 
-            req_list = [req for reqs in test_case_requirements.values() for req in reqs]
+            req_list: List[str] = [req for reqs in test_case_requirements.values() for req in reqs]
             self.tableWidget_existingTCLinks.setRowCount(len(req_list))
             for row, rid in enumerate(req_list):
                 self.tableWidget_existingTCLinks.setItem(row, 0, QTableWidgetItem(str(rid)))
@@ -371,7 +434,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.show_message("Error", str(e), QMessageBox.Icon.Critical)
 
     # ---------- Filtering ----------
-    def filter_table(self):
+    def filter_table(self) -> None:
+        """Filter requirement table based on search text"""
         filter_text = self.lineEdit_userName_2.text().lower()
         for row in range(self.tableWidget_ReqInfo.rowCount()):
             match = False

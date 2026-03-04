@@ -1,8 +1,25 @@
+"""
+Auto-generated UI layout for MainWindow
+Built with PyQt6 for ShowTestCaseLinkedReq application
+"""
 
 from PyQt6 import QtCore, QtGui, QtWidgets
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    pass
+
 
 class Ui_MainWindow(object):
-    def setupUi(self, MainWindow):
+    """UI Layout class for MainWindow"""
+    
+    def setupUi(self, MainWindow: QtWidgets.QMainWindow) -> None:
+        """
+        Set up the main window UI layout.
+        
+        Args:
+            MainWindow: The main window widget
+        """
         MainWindow.setObjectName("MainWindow")
         MainWindow.resize(1600, 900)
 
@@ -144,7 +161,13 @@ class Ui_MainWindow(object):
         self.retranslateUi(MainWindow)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
 
-    def retranslateUi(self, MainWindow):
+    def retranslateUi(self, MainWindow: QtWidgets.QMainWindow) -> None:
+        """
+        Set UI text and translations.
+        
+        Args:
+            MainWindow: The main window widget
+        """
         _t = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_t("MainWindow", "TC_ReqLinker"))
         self.lineEdit_userName.setPlaceholderText(_t("MainWindow", "Enter Your Helix User Name"))

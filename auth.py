@@ -1,12 +1,35 @@
+"""
+Authentication utilities for Helix ALM
+"""
+
 import base64
 import requests
+from typing import Dict
 from requests.exceptions import RequestException
 
-def get_authentication_token(base_url, uuid, headers):
+
+def get_authentication_token(base_url: str, uuid: str, headers: Dict[str, str]) -> str:
+    """
+    Get authentication token from Helix ALM API.
+    
+    Args:
+        base_url: Base URL for the Helix ALM API
+        uuid: Project UUID
+        headers: HTTP headers with basic auth
+        
+    Returns:
+        Access token string
+        
+    Raises:
+        Exception: If token retrieval fails
+    """
     token_url = f"{base_url}{uuid}/token"
     try:
         response = requests.get(url=token_url, headers=headers, verify=False)
         response.raise_for_status()
-        return response.json().get('accessToken')
+        token = response.json().get('accessToken')
+        if not token:
+            raise Exception("No access token in response")
+        return token
     except RequestException as e:
         raise Exception(f"Failed to retrieve authentication token: {str(e)}")
