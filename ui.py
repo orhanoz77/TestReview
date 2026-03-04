@@ -6,8 +6,7 @@ from urllib3.exceptions import InsecureRequestWarning
 from PyQt6.QtCore import Qt, QSettings, QTimer, QObject, pyqtSignal, QRunnable, QThreadPool
 from PyQt6.QtWidgets import QMainWindow, QTableWidgetItem, QHeaderView, QSizePolicy, QAbstractItemView, QMessageBox
 from bs4 import BeautifulSoup
-from api import *
-from auth import get_authentication_token
+from helix_api_client import HelixAPIClient
 from main_window import Ui_MainWindow
 from session_manager import SessionManager
 from PyQt6.QtGui import QPixmap, QIcon
@@ -25,11 +24,12 @@ class WorkerSignals(QObject):
     finished = pyqtSignal()
 
 class ReqBatchWorker(QRunnable):
-    def __init__(self, ids, headers, uuid):
+    def __init__(self, ids: list, headers: dict, uuid: str, api_client: HelixAPIClient):
         super().__init__()
         self.ids = ids
         self.headers = headers
         self.uuid = uuid
+        self.api_client = api_client
         self.signals = WorkerSignals()
 
     def run(self):
@@ -39,7 +39,7 @@ class ReqBatchWorker(QRunnable):
                 sess.verify = False
                 for rid in self.ids:
                     try:
-                        data = get_req_description(rid, self.headers, self.uuid, session=sess, timeout=30)
+                        data = self.api_client.get_req_description(rid, self.headers, self.uuid, session=sess)
                         tag = data.get('tag', 'No TAG available')
                         summary = next((f['string'] for f in data['fields'] if f['label'] == 'Summary'), 'No Summary available')
                         description_html = next((f['formattedString']['text'] for f in data['fields'] if f['label'] == 'Description'), 'No Description available')
@@ -109,6 +109,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Session management
         self.session = SessionManager()
+        
+        # API Client
+        self.api_client = HelixAPIClient()
 
         # Thread pool
         self.threadpool = QThreadPool.globalInstance()
@@ -152,7 +155,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 raise Exception("Selected project not found in project list")
 
             self.progress_bar_projects.setValue(50)
-            access_token = get_authentication_token(BASE_URL, project_uuid, self.session.headers)
+            access_token = self.api_client.get_authentication_token(project_uuid, self.session.headers)
             self.session.set_project(project_uuid, access_token)
             self.tableWidget_existingTCLinks.setRowCount(0)
             self.tableWidget_ReqInfo.setRowCount(0)
@@ -188,7 +191,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.progress_bar_projects.setValue(20)
 
             def step2():
-                projects = get_project_list(self.session.headers)
+                projects = self.api_client.get_project_list(self.session.headers)
                 self.session.set_projects(projects)
                 self.progress_bar_projects.setValue(50)
                 try:
@@ -205,7 +208,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 project_uuid = self.session.get_project_uuid(current_project)
                 if not project_uuid:
                     raise Exception("Selected project not found in project list")
-                access_token = get_authentication_token(BASE_URL, project_uuid, self.session.headers)
+                access_token = self.api_client.get_authentication_token(project_uuid, self.session.headers)
                 self.session.set_project(project_uuid, access_token)
 
             def finish():
@@ -301,7 +304,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         # Launch workers
         for chunk in chunks:
-            worker = ReqBatchWorker(chunk, self.session.get_bearer_headers(), self.session.uuid)
+            worker = ReqBatchWorker(chunk, self.session.get_bearer_headers(), self.session.uuid, self.api_client)
             worker.signals.row_ready.connect(self._on_worker_row)
             worker.signals.error.connect(self._on_worker_error)
             worker.signals.finished.connect(self._on_worker_finished)
@@ -313,7 +316,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.show_message("Error", "Invalid ACCESS_TOKEN or UUID")
             return
         headers = self.session.get_bearer_headers()
-        req_desc = get_req_description(reqId, headers, self.session.uuid)
+        req_desc = self.api_client.get_req_description(reqId, headers, self.session.uuid)
         return req_desc.get('tag', 'No TAG available')
 
     def getTCLinks(self):
@@ -334,7 +337,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         headers = self.session.get_bearer_headers()
 
         try:
-            data = get_test_cases_links(test_case_id, headers, self.session.uuid)
+            data = self.api_client.get_test_cases_links(test_case_id, headers, self.session.uuid)
             test_case_requirements = {}
 
             for link in data.get("linksData", []):
