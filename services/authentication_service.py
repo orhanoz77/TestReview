@@ -27,7 +27,7 @@ class AuthenticationService:
     
     def login(self, username: str, password: str) -> bool:
         """
-        Authenticate user with credentials.
+        Authenticate user with credentials and fetch initial access token.
         
         Args:
             username: Helix ALM username
@@ -43,8 +43,17 @@ class AuthenticationService:
             
             logger.info(f"Authenticating user: {username}")
             self.session.set_credentials(username, password)
-            logger.info(f"User authenticated: {username}")
-            return True
+            
+            # Fetch initial access token using basic auth headers
+            basic_headers = self.session.headers
+            try:
+                access_token = self.api_client.get_authentication_token("", basic_headers)
+                self.session.set_bearer_token(access_token)
+                logger.info(f"User authenticated: {username}")
+                return True
+            except Exception as token_error:
+                logger.error(f"Failed to get access token: {str(token_error)}")
+                return False
         except Exception as e:
             logger.error(f"Authentication failed: {str(e)}")
             return False
