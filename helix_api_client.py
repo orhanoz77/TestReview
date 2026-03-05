@@ -9,33 +9,32 @@ import json
 from typing import Dict, Any, Optional
 from requests import Session
 import logging
-import config
 
 logger = logging.getLogger(__name__)
 
 
 class HelixAPIClient:
     """Client for interacting with Helix ALM REST API."""
-
-    def __init__(
-        self,
-        base_url: Optional[str] = None,
-        verify_ssl: Optional[bool] = None,
-        timeout: Optional[int] = None
-    ):
+    
+    # Constants
+    BASE_URL = 'https://10.214.41.6:8443/helix-alm/api/v0/'
+    DEFAULT_TIMEOUT = 30  # seconds
+    VERIFY_SSL = False  # Note: Should be True in production
+    
+    def __init__(self, base_url: str = BASE_URL, verify_ssl: bool = VERIFY_SSL, timeout: int = DEFAULT_TIMEOUT):
         """
         Initialize the Helix ALM API Client.
         
         Args:
-            base_url: Base URL for the Helix ALM API (uses config default if None)
-            verify_ssl: Whether to verify SSL certificates (uses config default if None)
-            timeout: Default timeout for requests in seconds (uses config default if None)
+            base_url: Base URL for the Helix ALM API
+            verify_ssl: Whether to verify SSL certificates (default: False for dev)
+            timeout: Default timeout for requests in seconds
         """
-        self.base_url = base_url or config.HELIX_ALM_BASE_URL
-        self.verify_ssl = verify_ssl if verify_ssl is not None else config.API_VERIFY_SSL
-        self.timeout = timeout or config.API_TIMEOUT
+        self.base_url = base_url
+        self.verify_ssl = verify_ssl
+        self.timeout = timeout
         self.session = requests.Session()
-        self.session.verify = self.verify_ssl
+        self.session.verify = verify_ssl
     
     def get_project_list(self, headers: Dict[str, str]) -> Dict[str, str]:
         """
