@@ -5,6 +5,7 @@ Handles user interactions and API communication
 
 import base64
 import time
+import logging
 from typing import Dict, List, Any, Optional
 from urllib.parse import urljoin
 from urllib3.exceptions import InsecureRequestWarning
@@ -18,6 +19,7 @@ from PyQt6.QtGui import QPixmap, QIcon
 import requests
 import os
 
+logger = logging.getLogger(__name__)
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
 # Constants
@@ -174,9 +176,12 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         password = self.lineEdit_password.text()
 
         if username and password:
+            logger.info(f"User login attempt: {username}")
             self.session.set_credentials(username, password)
             self.statusBar().showMessage("Login data captured", 3000)
+            logger.debug("Login successful, credentials set in session")
         else:
+            logger.warning("Login attempt failed: missing username or password")
             self.show_message("Input Error", "Please enter both username and password.")
 
     def updateToken_UUID(self) -> None:
@@ -186,8 +191,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
         try:
             current_project = self.comboBox_projectList.currentText()
+            logger.debug(f"Updating token/UUID for project: {current_project}")
             project_uuid = self.session.get_project_uuid(current_project)
             if not project_uuid:
+                logger.error(f"Project not found: {current_project}")
                 raise Exception("Selected project not found in project list")
 
             self.progress_bar_projects.setValue(50)
@@ -198,7 +205,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.lineEdit_testCaseNumber.clear()
             self.progress_bar_projects.setValue(100)
             self.statusBar().showMessage("Project selected", 3000)
+            logger.info(f"Project token and UUID updated successfully: {current_project}")
         except Exception as e:
+            logger.error(f"Error updating token/UUID: {str(e)}")
             self.progress_bar_projects.setValue(0)
             self.show_message("Error", str(e), QMessageBox.Icon.Critical)
         finally:
@@ -207,9 +216,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def on_submit(self) -> None:
         """Load and display available projects"""
         if not self.session.is_authenticated():
+            logger.warning("Project load attempt without authentication")
             self.show_message("Error", "Please login")
             return
 
+        logger.info("Loading projects from API")
         if self.session.username and self.session.password and self.session.username.strip() and self.session.password.strip():
             self.progress_bar_projects.setValue(0)
             self.progress_bar_projects.show()
@@ -219,6 +230,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     try:
                         func()
                     except Exception as e:
+                        logger.error(f"Error in project loading step: {str(e)}")
                         self.progress_bar_projects.setValue(0)
                         self.progress_bar_projects.hide()
                         self.show_message("Error", str(e), QMessageBox.Icon.Critical)
@@ -238,6 +250,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.comboBox_projectList.clear()
                 self.comboBox_projectList.addItems(projects.keys())
                 self.comboBox_projectList.currentIndexChanged.connect(self.updateToken_UUID)
+                logger.debug(f"Projects loaded: {len(projects)} projects found")
 
             def step3():
                 self.progress_bar_projects.setValue(70)
@@ -252,12 +265,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                 self.progress_bar_projects.setValue(100)
                 self.progress_bar_projects.hide()
                 self.statusBar().showMessage("Projects loaded", 3000)
+                logger.info("Projects loaded and displayed successfully")
 
             QTimer.singleShot(50, safe_step(step1))
             QTimer.singleShot(100, safe_step(step2))
             QTimer.singleShot(150, safe_step(step3))
             QTimer.singleShot(200, safe_step(finish))
         else:
+            logger.warning("Project load failed: invalid credentials")
             self.show_message("Input Error", "Please enter both username and password.")
 
     # ---------- Requirement details (parallel) ----------
@@ -303,6 +318,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         Args:
             msg: Error message
         """
+        logger.error(f"Worker error: {msg}")
         # Log to status bar; avoid modal dialogs during bulk load
         self.statusBar().showMessage(f"Error: {msg}", 5000)
 
@@ -310,6 +326,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         """Handle worker finished signal"""
         self._pending_workers -= 1
         if self._pending_workers <= 0:
+            logger.info(f"All workers finished, displaying {self._pending_done} requirement details")
             # Finalize table sizing once
             self.tableWidget_ReqInfo.resizeColumnToContents(0)
             self.tableWidget_ReqInfo.resizeColumnToContents(1)
@@ -323,6 +340,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def read_table_items(self) -> None:
         """Fetch and display requirement details for all linked test case requirements"""
         if not self.session.is_project_selected():
+            logger.warning("Attempt to read table items without project selection")
             self.show_message("Error", "Please select a project first")
             return
 
@@ -339,9 +357,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     ids.append(rid)
 
         if not ids:
+            logger.warning("No requirement IDs found to fetch")
             QMessageBox.warning(self, "Warning", "No requirement IDs found to fetch.")
             return
 
+        logger.info(f"Starting parallel fetch of requirement details for {len(ids)} requirements")
         # Reset table and progress
         self.tableWidget_ReqInfo.setRowCount(0)
         self.progress_bar_get_req_desc.setValue(0)
@@ -351,6 +371,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         thread_count = min(8, max(1, len(ids)))
         chunk_size = max(1, len(ids) // thread_count)
         chunks = [ids[i:i + chunk_size] for i in range(0, len(ids), chunk_size)]
+        logger.debug(f"Created {len(chunks)} worker threads for requirement fetching")
 
         self._pending_total = len(ids)
         self._pending_done = 0
@@ -385,14 +406,17 @@ class MainWindow(QMainWindow, Ui_MainWindow):
     def getTCLinks(self) -> None:
         """Fetch and display test case links for entered test case ID"""
         if not self.session.is_project_selected():
+            logger.warning("Attempt to get TC links without project selection")
             self.show_message("Error", "Please log in first.", QMessageBox.Icon.Warning)
             return
 
         test_case_id = self.lineEdit_testCaseNumber.text().strip()
         if not test_case_id.isdigit() or int(test_case_id) <= 0:
+            logger.warning(f"Invalid test case ID: {test_case_id}")
             self.show_message("Input Error", "Test Case ID must be a positive integer.")
             return
 
+        logger.info(f"Fetching links for test case: {test_case_id}")
         self.tableWidget_ReqInfo.setRowCount(0)
         self.progress_bar_get_tc_links.setValue(0)
         self.progress_bar_get_tc_links.show()
@@ -428,7 +452,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
             self.progress_bar_get_tc_links.setValue(100)
             self.progress_bar_get_tc_links.hide()
+            logger.info(f"Test case links fetched successfully: {len(req_list)} requirements found")
         except Exception as e:
+            logger.error(f"Error fetching test case links for ID {test_case_id}: {str(e)}")
             self.progress_bar_get_tc_links.setValue(0)
             self.progress_bar_get_tc_links.hide()
             self.show_message("Error", str(e), QMessageBox.Icon.Critical)

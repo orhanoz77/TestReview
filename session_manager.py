@@ -4,7 +4,10 @@ Manages authentication state, credentials, and API session data.
 """
 
 import base64
+import logging
 from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class SessionManager:
@@ -28,11 +31,13 @@ class SessionManager:
         """
         self.username = username
         self.password = password
+        logger.info(f"Credentials set for user: {username}")
         
         # Generate Basic Auth header
         auth_str = f"{username}:{password}"
         auth_bytes = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
         self.headers = {'Authorization': f'Basic {auth_bytes}'}
+        logger.debug("Basic Auth header generated")
     
     def set_bearer_token(self, access_token: str) -> None:
         """
@@ -62,6 +67,7 @@ class SessionManager:
         """
         self.uuid = uuid
         self.access_token = access_token
+        logger.info(f"Project selected: {uuid}")
     
     def set_projects(self, projects: Dict[str, str]) -> None:
         """
