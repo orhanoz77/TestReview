@@ -27,7 +27,7 @@ class AuthenticationService:
     
     def login(self, username: str, password: str) -> bool:
         """
-        Authenticate user with credentials and fetch initial access token.
+        Authenticate user with credentials.
         
         Args:
             username: Helix ALM username
@@ -43,17 +43,8 @@ class AuthenticationService:
             
             logger.info(f"Authenticating user: {username}")
             self.session.set_credentials(username, password)
-            
-            # Fetch initial access token using basic auth headers
-            basic_headers = self.session.headers
-            try:
-                access_token = self.api_client.get_authentication_token("", basic_headers)
-                self.session.set_bearer_token(access_token)
-                logger.info(f"User authenticated: {username}")
-                return True
-            except Exception as token_error:
-                logger.error(f"Failed to get access token: {str(token_error)}")
-                return False
+            logger.info(f"User authenticated: {username}")
+            return True
         except Exception as e:
             logger.error(f"Authentication failed: {str(e)}")
             return False
@@ -75,6 +66,15 @@ class AuthenticationService:
             True if project UUID and token are set
         """
         return self.session.is_project_selected()
+    
+    def get_basic_headers(self) -> Dict[str, str]:
+        """
+        Get HTTP headers with Basic Auth for API requests.
+        
+        Returns:
+            Dictionary with Basic authorization header
+        """
+        return self.session.headers
     
     def get_bearer_headers(self) -> Dict[str, str]:
         """

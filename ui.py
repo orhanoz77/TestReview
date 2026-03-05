@@ -241,9 +241,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             self.progress_bar_projects.setValue(20)
 
         def step2():
-            # Use project service to load projects
+            # Use project service to load projects with Basic Auth headers
             projects = self.project_service.load_projects(
-                self.auth_service.get_bearer_headers()
+                self.auth_service.get_basic_headers()
             )
             self.progress_bar_projects.setValue(50)
             try:
