@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 from helix_api_client import HelixAPIClient
 from main_window import Ui_MainWindow
 from session_manager import SessionManager
+from services import AuthenticationService, ProjectService, RequirementService
 from PyQt6.QtGui import QPixmap, QIcon
 import requests
 import os
@@ -133,11 +134,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.pushButton_SaveCredentials.clicked.connect(self.save_credentials)
         self.load_credentials()
 
-        # Session management
+        # Session management and API Client
         self.session: SessionManager = SessionManager()
-        
-        # API Client
         self.api_client: HelixAPIClient = HelixAPIClient()
+        
+        # Initialize services (business logic layer)
+        self.auth_service: AuthenticationService = AuthenticationService(self.session, self.api_client)
+        self.project_service: ProjectService = ProjectService(self.session, self.api_client)
+        self.requirement_service: RequirementService = RequirementService(self.api_client)
 
         # Thread pool
         self.threadpool: QThreadPool = QThreadPool.globalInstance()
@@ -175,13 +179,11 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         username = self.lineEdit_userName.text()
         password = self.lineEdit_password.text()
 
-        if username and password:
-            logger.info(f"User login attempt: {username}")
-            self.session.set_credentials(username, password)
+        if self.auth_service.login(username, password):
             self.statusBar().showMessage("Login data captured", 3000)
             logger.debug("Login successful, credentials set in session")
         else:
-            logger.warning("Login attempt failed: missing username or password")
+            logger.warning("Login attempt failed")
             self.show_message("Input Error", "Please enter both username and password.")
 
     def updateToken_UUID(self) -> None:
@@ -192,14 +194,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         try:
             current_project = self.comboBox_projectList.currentText()
             logger.debug(f"Updating token/UUID for project: {current_project}")
-            project_uuid = self.session.get_project_uuid(current_project)
-            if not project_uuid:
-                logger.error(f"Project not found: {current_project}")
-                raise Exception("Selected project not found in project list")
-
             self.progress_bar_projects.setValue(50)
-            access_token = self.api_client.get_authentication_token(project_uuid, self.session.headers)
-            self.session.set_project(project_uuid, access_token)
+            
+            # Use project service to select project
+            self.project_service.select_project(
+                current_project,
+                self.auth_service.get_bearer_headers()
+            )
+            
             self.tableWidget_existingTCLinks.setRowCount(0)
             self.tableWidget_ReqInfo.setRowCount(0)
             self.lineEdit_testCaseNumber.clear()
@@ -215,65 +217,63 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def on_submit(self) -> None:
         """Load and display available projects"""
-        if not self.session.is_authenticated():
+        if not self.auth_service.is_authenticated():
             logger.warning("Project load attempt without authentication")
             self.show_message("Error", "Please login")
             return
 
         logger.info("Loading projects from API")
-        if self.session.username and self.session.password and self.session.username.strip() and self.session.password.strip():
-            self.progress_bar_projects.setValue(0)
-            self.progress_bar_projects.show()
+        self.progress_bar_projects.setValue(0)
+        self.progress_bar_projects.show()
 
-            def safe_step(func):
-                def wrapper():
-                    try:
-                        func()
-                    except Exception as e:
-                        logger.error(f"Error in project loading step: {str(e)}")
-                        self.progress_bar_projects.setValue(0)
-                        self.progress_bar_projects.hide()
-                        self.show_message("Error", str(e), QMessageBox.Icon.Critical)
-                return wrapper
-
-            def step1():
-                self.progress_bar_projects.setValue(20)
-
-            def step2():
-                projects = self.api_client.get_project_list(self.session.headers)
-                self.session.set_projects(projects)
-                self.progress_bar_projects.setValue(50)
+        def safe_step(func):
+            def wrapper():
                 try:
-                    self.comboBox_projectList.currentIndexChanged.disconnect()
-                except Exception:
-                    pass
-                self.comboBox_projectList.clear()
-                self.comboBox_projectList.addItems(projects.keys())
-                self.comboBox_projectList.currentIndexChanged.connect(self.updateToken_UUID)
-                logger.debug(f"Projects loaded: {len(projects)} projects found")
+                    func()
+                except Exception as e:
+                    logger.error(f"Error in project loading step: {str(e)}")
+                    self.progress_bar_projects.setValue(0)
+                    self.progress_bar_projects.hide()
+                    self.show_message("Error", str(e), QMessageBox.Icon.Critical)
+            return wrapper
 
-            def step3():
-                self.progress_bar_projects.setValue(70)
-                current_project = self.comboBox_projectList.currentText()
-                project_uuid = self.session.get_project_uuid(current_project)
-                if not project_uuid:
-                    raise Exception("Selected project not found in project list")
-                access_token = self.api_client.get_authentication_token(project_uuid, self.session.headers)
-                self.session.set_project(project_uuid, access_token)
+        def step1():
+            self.progress_bar_projects.setValue(20)
 
-            def finish():
-                self.progress_bar_projects.setValue(100)
-                self.progress_bar_projects.hide()
-                self.statusBar().showMessage("Projects loaded", 3000)
-                logger.info("Projects loaded and displayed successfully")
+        def step2():
+            # Use project service to load projects
+            projects = self.project_service.load_projects(
+                self.auth_service.get_bearer_headers()
+            )
+            self.progress_bar_projects.setValue(50)
+            try:
+                self.comboBox_projectList.currentIndexChanged.disconnect()
+            except Exception:
+                pass
+            self.comboBox_projectList.clear()
+            self.comboBox_projectList.addItems(projects.keys())
+            self.comboBox_projectList.currentIndexChanged.connect(self.updateToken_UUID)
+            logger.debug(f"Projects loaded: {len(projects)} projects found")
 
-            QTimer.singleShot(50, safe_step(step1))
-            QTimer.singleShot(100, safe_step(step2))
-            QTimer.singleShot(150, safe_step(step3))
-            QTimer.singleShot(200, safe_step(finish))
-        else:
-            logger.warning("Project load failed: invalid credentials")
-            self.show_message("Input Error", "Please enter both username and password.")
+        def step3():
+            self.progress_bar_projects.setValue(70)
+            current_project = self.comboBox_projectList.currentText()
+            # Use project service to select project
+            self.project_service.select_project(
+                current_project,
+                self.auth_service.get_bearer_headers()
+            )
+
+        def finish():
+            self.progress_bar_projects.setValue(100)
+            self.progress_bar_projects.hide()
+            self.statusBar().showMessage("Projects loaded", 3000)
+            logger.info("Projects loaded and displayed successfully")
+
+        QTimer.singleShot(50, safe_step(step1))
+        QTimer.singleShot(100, safe_step(step2))
+        QTimer.singleShot(150, safe_step(step3))
+        QTimer.singleShot(200, safe_step(finish))
 
     # ---------- Requirement details (parallel) ----------
     def _on_worker_row(self, tag: str, summary: str, description: str, discussions: str) -> None:
@@ -405,7 +405,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
 
     def getTCLinks(self) -> None:
         """Fetch and display test case links for entered test case ID"""
-        if not self.session.is_project_selected():
+        if not self.auth_service.is_project_selected():
             logger.warning("Attempt to get TC links without project selection")
             self.show_message("Error", "Please log in first.", QMessageBox.Icon.Warning)
             return
@@ -421,31 +421,14 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.progress_bar_get_tc_links.setValue(0)
         self.progress_bar_get_tc_links.show()
 
-        headers = self.session.get_bearer_headers()
-
         try:
-            data: Dict[str, Any] = self.api_client.get_test_cases_links(test_case_id, headers, self.session.uuid)
-            test_case_requirements: Dict[str, List[str]] = {}
+            # Use requirement service to get test case links
+            req_list = self.requirement_service.get_test_case_links(
+                test_case_id,
+                self.auth_service.get_bearer_headers(),
+                self.session.uuid
+            )
 
-            for link in data.get("linksData", []):
-                name = link["linkDefinition"]["name"]
-                if name == "Shared Test Case Steps":
-                    continue
-                if name == "Related Items":
-                    peers = link["peers"]
-                    tc_id = next(p["itemID"] for p in peers if p["itemType"] == "testCases")
-                    requirement_id = next(p["itemID"] for p in peers if p["itemType"] == "requirements")
-                else:
-                    tc_id = link["parentChildren"]["children"][0]["itemID"]
-                    requirement_id = link["parentChildren"]["parent"]["itemID"]
-
-                # Optional prefix filter (kept as pass-through to preserve behavior)
-                if not any(str(requirement_id).startswith(pref) for pref in REQUIREMENT_PREFIXES):
-                    pass
-
-                test_case_requirements.setdefault(tc_id, []).append(requirement_id)
-
-            req_list: List[str] = [req for reqs in test_case_requirements.values() for req in reqs]
             self.tableWidget_existingTCLinks.setRowCount(len(req_list))
             for row, rid in enumerate(req_list):
                 self.tableWidget_existingTCLinks.setItem(row, 0, QTableWidgetItem(str(rid)))
