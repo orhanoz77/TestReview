@@ -196,10 +196,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             logger.debug(f"Updating token/UUID for project: {current_project}")
             self.progress_bar_projects.setValue(50)
             
-            # Use project service to select project
+            # Use project service to select project with Basic Auth
             self.project_service.select_project(
                 current_project,
-                self.auth_service.get_bearer_headers()
+                self.auth_service.get_basic_headers()
             )
             
             self.tableWidget_existingTCLinks.setRowCount(0)
@@ -258,10 +258,10 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         def step3():
             self.progress_bar_projects.setValue(70)
             current_project = self.comboBox_projectList.currentText()
-            # Use project service to select project
+            # Use project service to select project with Basic Auth
             self.project_service.select_project(
                 current_project,
-                self.auth_service.get_bearer_headers()
+                self.auth_service.get_basic_headers()
             )
 
         def finish():
